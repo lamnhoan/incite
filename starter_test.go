@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,7 +82,7 @@ func TestStarter_manipulate(t *testing.T) {
 		}{
 			{
 				name:     "Throttling Error",
-				err:      awserr.New("foo", "rate exceeded", nil),
+				err:      &smithy.GenericAPIError{Code: "ThrottledException", Message: "rate exceeded"},
 				expected: throttlingError,
 			},
 			{
@@ -90,7 +91,7 @@ func TestStarter_manipulate(t *testing.T) {
 					logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
 						"exceeded query concurrency limit", chunkID, text, start, end, "temporary error from CloudWatch Logs: LimitExceededException: too many queries!")
 				},
-				err:         awserr.New(cloudwatchlogs.ErrCodeLimitExceededException, "too many queries!", nil),
+				err:         &types.LimitExceededException{Message: sp("too many queries!")},
 				expectedErr: errReduceParallel,
 				expected:    finished,
 			},
@@ -133,8 +134,8 @@ func TestStarter_manipulate(t *testing.T) {
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
 				s, actions, logger := newTestableStarter(t, 1_000_000)
-				groups := []*string{sp("g")}
-				var limit int64 = 999
+				groups := []string{"g"}
+				var limit int32 = 999
 				actions.
 					On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
 						QueryString:   &text,
@@ -151,13 +152,18 @@ func TestStarter_manipulate(t *testing.T) {
 				if testCase.err != nil && testCase.expectedErr == nil {
 					testCase.expectedErr = &StartQueryError{text, start, end, testCase.err}
 				}
+				stringPointers := make([]*string, len(groups))
+				for i, g := range groups {
+					g := g // Create a new variable to avoid capturing the loop variable
+					stringPointers[i] = &g
+				}
 				c := &chunk{
 					stream: &stream{
 						QuerySpec: QuerySpec{
 							Text:  text,
-							Limit: limit,
+							Limit: int64(limit),
 						},
-						groups: groups,
+						groups: stringPointers,
 					},
 					ctx:     context.Background(),
 					chunkID: chunkID,

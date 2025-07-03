@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/smithy-go"
 )
 
 var (
@@ -127,35 +127,47 @@ const (
 )
 
 func classifyError(err error) errorClass {
-	if x, ok := err.(awserr.Error); ok {
-		// Short-circuit if the HTTP status code indicates retryability.
-		if f, ok := err.(awserr.RequestFailure); ok {
-			status := f.StatusCode()
-			if status == 429 {
-				return throttlingClass
-			} else if status == 502 || status == 503 || status == 504 {
-				return temporaryClass
-			}
-		}
+	// Check for specific CloudWatch Logs error types
+	var limitExceeded *types.LimitExceededException
+	if errors.As(err, &limitExceeded) {
+		return limitExceededClass
+	}
 
-		// Check for known CloudWatch Logs retryability codes.
-		switch x.Code() {
-		case cloudwatchlogs.ErrCodeLimitExceededException:
-			return limitExceededClass
-		case cloudwatchlogs.ErrCodeServiceUnavailableException:
-			return temporaryClass
-		}
+	var serviceUnavailable *types.ServiceUnavailableException
+	if errors.As(err, &serviceUnavailable) {
+		return temporaryClass
+	}
+
+	// Check for generic API errors
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		code := apiErr.ErrorCode()
 
 		// Check for throttling using common AWS service patterns for indicating
 		// throttling via exception. Omit 'e' suffix on 'throttl' to match
 		// Throttled and Throttling.
-		if strings.Contains(strings.ToLower(x.Code()), "throttl") ||
-			strings.Contains(strings.ToLower(x.Message()), "rate exceeded") {
+		if strings.Contains(strings.ToLower(code), "throttl") ||
+			strings.Contains(strings.ToLower(code), "toomanyrequests") {
 			return throttlingClass
 		}
 
-		// Recursively examine the cause error, if any.
-		return classifyError(x.OrigErr())
+		if strings.Contains(strings.ToLower(code), "badgateway") ||
+			strings.Contains(strings.ToLower(code), "serviceunavailable") ||
+			strings.Contains(strings.ToLower(code), "gatewaytimeout") {
+			return temporaryClass
+		}
+	}
+
+	// Check for OperationError
+	var opErr *smithy.OperationError
+	if errors.As(err, &opErr) {
+		unwrappedErr := opErr.Unwrap()
+		if unwrappedErr != nil {
+			var deserializeErr *smithy.DeserializationError
+			if errors.As(unwrappedErr, &deserializeErr) {
+				return temporaryClass
+			}
+		}
 	}
 
 	// TODO: We may also want to check for io.ErrUnexpectedEOF.

@@ -429,10 +429,9 @@ type Config struct {
 	// service. If this value is nil then NewQueryManager panics.
 	//
 	// Normally Actions should be set to the value of an AWS SDK for Go
-	// (v1) CloudWatch Logs client: both the cloudwatchlogsiface.CloudWatchLogsAPI
-	// interface and the *cloudwatchlogs.CloudWatchLogs type are
+	// (v2) CloudWatch Logs client: the *cloudwatchlogs.Client type is
 	// compatible with the CloudWatchLogsActions interface. Use a
-	// properly configured instance of one of these types to set the
+	// properly configured instance of this type to set the
 	// value of the Actions field.
 	Actions CloudWatchLogsActions
 

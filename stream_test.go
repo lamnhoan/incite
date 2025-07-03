@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -70,7 +71,7 @@ func TestStream_Close(t *testing.T) {
 					}
 					actions.
 						On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
-						Return(&cloudwatchlogs.GetQueryResultsOutput{Status: sp(cloudwatchlogs.QueryStatusRunning)}, nil).
+						Return(&cloudwatchlogs.GetQueryResultsOutput{Status: types.QueryStatusRunning}, nil).
 						Maybe()
 					actions.
 						On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
@@ -128,8 +129,8 @@ func TestStream_Read(t *testing.T) {
 		actions.
 			On("GetQueryResultsWithContext", anyContext, anyGetQueryResultsInput).
 			Return(&cloudwatchlogs.GetQueryResultsOutput{
-				Status: sp(cloudwatchlogs.QueryStatusComplete),
-				Results: [][]*cloudwatchlogs.ResultField{
+				Status: types.QueryStatusComplete,
+				Results: [][]types.ResultField{
 					{{Field: sp("@ptr"), Value: sp("1")}},
 					{{Field: sp("@ptr"), Value: sp("2")}},
 				},

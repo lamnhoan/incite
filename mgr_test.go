@@ -14,8 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -497,12 +498,12 @@ func TestQueryManager_Close(t *testing.T) {
 		actions.
 			On("GetQueryResultsWithContext", anyContext, mock.Anything).
 			Return(&cloudwatchlogs.GetQueryResultsOutput{
-				Status: sp(cloudwatchlogs.QueryStatusRunning),
+				Status: types.QueryStatusRunning,
 			}, nil).
 			Maybe()
 		actions.
 			On("StopQueryWithContext", anyContext, mock.Anything).
-			Return(&cloudwatchlogs.StopQueryOutput{Success: &stopped}, nil).
+			Return(&cloudwatchlogs.StopQueryOutput{Success: stopped}, nil).
 			Maybe()
 		m := NewQueryManager(Config{
 			Actions: actions,
@@ -553,7 +554,7 @@ func TestQueryManager_Close(t *testing.T) {
 				Once()
 			actions.
 				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
-				Return(&cloudwatchlogs.GetQueryResultsOutput{Status: sp(cloudwatchlogs.QueryStatusRunning)}, nil).
+				Return(&cloudwatchlogs.GetQueryResultsOutput{Status: types.QueryStatusRunning}, nil).
 				Maybe()
 			actions.
 				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
@@ -612,7 +613,7 @@ func TestQueryManager_Close(t *testing.T) {
 					Maybe()
 				actions.
 					On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
-					Return(&cloudwatchlogs.GetQueryResultsOutput{Status: sp(cloudwatchlogs.QueryStatusRunning)}, nil).
+					Return(&cloudwatchlogs.GetQueryResultsOutput{Status: types.QueryStatusRunning}, nil).
 					Maybe()
 				actions.
 					On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
@@ -665,7 +666,7 @@ func TestQueryManager_Close(t *testing.T) {
 		actions.
 			On("GetQueryResultsWithContext", anyContext, mock.Anything).
 			Return(&cloudwatchlogs.GetQueryResultsOutput{
-				Status: sp(cloudwatchlogs.QueryStatusRunning),
+				Status: types.QueryStatusRunning,
 			}, nil)
 		actions.
 			On("StopQueryWithContext", anyContext, mock.Anything).
@@ -1282,16 +1283,16 @@ func TestQueryManager_Query(t *testing.T) {
 				name:  "Nil Status",
 				cause: errNilStatus(),
 				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
-					Statistics: &cloudwatchlogs.QueryStatistics{},
+					Statistics: &types.QueryStatistics{},
 				},
 			},
 			{
 				name:  "Nil Result Field",
 				cause: errNilResultField(1),
 				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
-					Status: sp(cloudwatchlogs.QueryStatusComplete),
-					Results: [][]*cloudwatchlogs.ResultField{
-						{{Field: sp("Foo"), Value: sp("10")}, nil, {Field: sp("@ptr"), Value: sp("ptr-val")}},
+					Status: types.QueryStatusComplete,
+					Results: [][]types.ResultField{
+						{{Field: sp("Foo"), Value: sp("10")}, {Field: sp("@ptr"), Value: sp("ptr-val")}},
 					},
 				},
 			},
@@ -1299,8 +1300,8 @@ func TestQueryManager_Query(t *testing.T) {
 				name:  "No Key",
 				cause: errNoKey(),
 				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
-					Status: sp(cloudwatchlogs.QueryStatusComplete),
-					Results: [][]*cloudwatchlogs.ResultField{
+					Status: types.QueryStatusComplete,
+					Results: [][]types.ResultField{
 						{{Value: sp("orphan value")}},
 					},
 				},
@@ -1309,8 +1310,8 @@ func TestQueryManager_Query(t *testing.T) {
 				name:  "No Value",
 				cause: errNoValue("orphan key"),
 				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
-					Status: sp(cloudwatchlogs.QueryStatusComplete),
-					Results: [][]*cloudwatchlogs.ResultField{
+					Status: types.QueryStatusComplete,
+					Results: [][]types.ResultField{
 						{{Field: sp("orphan key")}},
 					},
 				},
@@ -1387,10 +1388,10 @@ func TestQueryManager_Query(t *testing.T) {
 		// `n` chunks, where `n` is the iteration number.
 
 		text := "query text for which some chunks will fail"
-		stats := cloudwatchlogs.QueryStatistics{
-			BytesScanned:   float64p(1.0),
-			RecordsMatched: float64p(1.0),
-			RecordsScanned: float64p(1.0),
+		stats := types.QueryStatistics{
+			BytesScanned:   1.0,
+			RecordsMatched: 1.0,
+			RecordsScanned: 1.0,
 		}
 
 		for n := 1; n <= 10; n++ {
@@ -1416,18 +1417,18 @@ func TestQueryManager_Query(t *testing.T) {
 						if i < maxRestart {
 							getCall.Return(&cloudwatchlogs.GetQueryResultsOutput{
 								Statistics: &stats,
-								Status:     sp(cloudwatchlogs.QueryStatusFailed),
+								Status:     types.QueryStatusFailed,
 							}, nil)
 						} else {
 							getCall.Return(&cloudwatchlogs.GetQueryResultsOutput{
-								Results: [][]*cloudwatchlogs.ResultField{
+								Results: [][]types.ResultField{
 									{
-										&cloudwatchlogs.ResultField{Field: sp("n"), Value: sp(strconv.Itoa(n))},
-										&cloudwatchlogs.ResultField{Field: sp("c"), Value: sp(strconv.Itoa(c))},
+										{Field: sp("n"), Value: sp(strconv.Itoa(n))},
+										{Field: sp("c"), Value: sp(strconv.Itoa(c))},
 									},
 								},
 								Statistics: &stats,
-								Status:     sp(cloudwatchlogs.QueryStatusComplete),
+								Status:     types.QueryStatusComplete,
 							}, nil)
 						}
 						getCall.Once()
@@ -1522,7 +1523,7 @@ func TestQueryManager_Query(t *testing.T) {
 						gets = append(gets, queryID)
 					}).
 					Return(&cloudwatchlogs.GetQueryResultsOutput{
-						Status: sp(cloudwatchlogs.QueryStatusComplete),
+						Status: types.QueryStatusComplete,
 					}, nil).
 					Once()
 			}
@@ -1600,7 +1601,7 @@ func TestQueryManager_Query(t *testing.T) {
 			queryIDChunk1 := "foo"
 			actions.
 				On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultStart.Add(time.Second), DefaultLimit, "grp")).
-				Return(nil, cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "foo")).
+				Return(nil, &types.ServiceUnavailableException{Message: sp("foo")}).
 				Once()
 			logger.
 				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "starter temporary error", "0", text, defaultStart, defaultStart.Add(time.Second), "ServiceUnavailableException: foo").
@@ -1615,8 +1616,8 @@ func TestQueryManager_Query(t *testing.T) {
 			actions.
 				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk1}).
 				Return(&cloudwatchlogs.GetQueryResultsOutput{
-					Results: [][]*cloudwatchlogs.ResultField{},
-					Status:  sp(cloudwatchlogs.QueryStatusComplete),
+					Results: [][]types.ResultField{},
+					Status:  types.QueryStatusComplete,
 				}, nil).
 				Once()
 			logger.
@@ -1634,8 +1635,8 @@ func TestQueryManager_Query(t *testing.T) {
 			actions.
 				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk2[0]}).
 				Return(&cloudwatchlogs.GetQueryResultsOutput{
-					Results: [][]*cloudwatchlogs.ResultField{},
-					Status:  sp(cloudwatchlogs.QueryStatusFailed),
+					Results: [][]types.ResultField{},
+					Status:  types.QueryStatusFailed,
 				}, nil).
 				Once()
 			actions.
@@ -1648,8 +1649,8 @@ func TestQueryManager_Query(t *testing.T) {
 			actions.
 				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk2[1]}).
 				Return(&cloudwatchlogs.GetQueryResultsOutput{
-					Results: [][]*cloudwatchlogs.ResultField{},
-					Status:  sp(cloudwatchlogs.QueryStatusComplete),
+					Results: [][]types.ResultField{},
+					Status:  types.QueryStatusComplete,
 				}, nil).
 				Once()
 			logger.
@@ -1829,7 +1830,7 @@ func TestQueryManager_Query(t *testing.T) {
 						}).
 						Return(&cloudwatchlogs.GetQueryResultsOutput{
 							Results: backOut(chunkResults),
-							Status:  sp(cloudwatchlogs.QueryStatusComplete),
+							Status:  types.QueryStatusComplete,
 						}, nil).Once()
 					logger.
 						expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", chunkID+"("+chunkID+")", "foo").
@@ -1948,7 +1949,7 @@ func TestQueryManager_Query(t *testing.T) {
 			Once()
 		actions.
 			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("0")).
-			Return(getQueryResultsOutput([]Result{{{"@ptr", "0/0"}}, {{"@ptr", "0/1"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "0/0"}}, {{"@ptr", "0/1"}}}, string(types.QueryStatusComplete), nil), nil).
 			Once()
 		// Second chunk (generation 0).
 		actions.
@@ -1958,7 +1959,7 @@ func TestQueryManager_Query(t *testing.T) {
 		actions.
 			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("1")).
 			WaitUntil(firstGen1ChunkStarting).
-			Return(getQueryResultsOutput([]Result{{{"@ptr", "1/0"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "1/0"}}}, string(types.QueryStatusComplete), nil), nil).
 			Once()
 		// First chunk half 1 (generation 1).
 		actions.
@@ -1970,7 +1971,7 @@ func TestQueryManager_Query(t *testing.T) {
 			Once()
 		actions.
 			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("0/0")).
-			Return(getQueryResultsOutput([]Result{{{"@ptr", "0/0"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "0/0"}}}, string(types.QueryStatusComplete), nil), nil).
 			Once()
 		// First chunk half 2 (generation 1).
 		actions.
@@ -1980,7 +1981,7 @@ func TestQueryManager_Query(t *testing.T) {
 		actions.
 			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("0/1")).
 			WaitUntil(thirdGen0ChunkStarting).
-			Return(getQueryResultsOutput([]Result{{{"@ptr", "1/1"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "1/1"}}}, string(types.QueryStatusComplete), nil), nil).
 			Once()
 		// Third chunk (generation 1).
 		actions.
@@ -1992,7 +1993,7 @@ func TestQueryManager_Query(t *testing.T) {
 			Once()
 		actions.
 			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("2")).
-			Return(getQueryResultsOutput([]Result{{{"@ptr", "2/0"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "2/0"}}}, string(types.QueryStatusComplete), nil), nil).
 			Once()
 		s, err := m.Query(QuerySpec{
 			Text:       text,
@@ -2035,16 +2036,16 @@ func TestQueryManager_Query(t *testing.T) {
 						QueryString:   sp("q"),
 						StartTime:     startTimeMilliseconds(defaultStart),
 						EndTime:       endTimeMilliseconds(defaultEnd),
-						LogGroupNames: []*string{sp("a")},
-						Limit:         int64p(1),
+						LogGroupNames: []string{"a"},
+						Limit:         int32p(1),
 					}).
 					Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("queryID")}, nil).
 					Once()
 				actions.
 					On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: sp("queryID")}).
 					Return(&cloudwatchlogs.GetQueryResultsOutput{
-						Status: sp(cloudwatchlogs.QueryStatusComplete),
-						Results: [][]*cloudwatchlogs.ResultField{
+						Status: types.QueryStatusComplete,
+						Results: [][]types.ResultField{
 							{{Field: sp("@ptr"), Value: sp("1")}},
 						},
 					}, nil).
@@ -2088,7 +2089,7 @@ func TestQueryManager_Query(t *testing.T) {
 	t.Run("Query Fails with Error if Chunk Exceeds Max Temporary Errors", func(t *testing.T) {
 		text := "a query destined to exceed all maxima on temporary errors"
 		groups := []string{"grpA", "grpB"}
-		expectedErr := cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "we lacking service")
+		expectedErr := &types.ServiceUnavailableException{Message: sp("we lacking service")}
 
 		testCases := []struct {
 			name  string
@@ -2118,7 +2119,7 @@ func TestQueryManager_Query(t *testing.T) {
 						Times(maxTempPollingErrs)
 					actions.
 						On("StopQueryWithContext", anyContext, anyStopQueryInput).
-						Return(&cloudwatchlogs.StopQueryOutput{Success: &stopSuccess}, nil).
+						Return(&cloudwatchlogs.StopQueryOutput{Success: stopSuccess}, nil).
 						Maybe()
 				},
 			},
@@ -2167,7 +2168,7 @@ func TestQueryManager_Query(t *testing.T) {
 		text := "what do my logs say?"
 		groups := []string{"/log/group"}
 		queryID := "qid"
-		errThrottled := awserr.New("throttled", "throttled", nil)
+		errThrottled := &smithy.GenericAPIError{Code: "ThrottledException", Message: "throttled"}
 
 		actions := newMockActions(t)
 		m := NewQueryManager(Config{
@@ -2242,7 +2243,7 @@ func TestQueryManager_Query(t *testing.T) {
 		actions.
 			On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
 			Run(func(_ mock.Arguments) { doneStopping.Done() }).
-			Return(&cloudwatchlogs.StopQueryOutput{Success: &trueValue}, nil).
+			Return(&cloudwatchlogs.StopQueryOutput{Success: trueValue}, nil).
 			Once()
 		stopAdapter.
 			On("decrease").

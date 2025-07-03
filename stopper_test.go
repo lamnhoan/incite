@@ -10,11 +10,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+func cwlErr(code, message string, err error) error {
+	return &smithy.GenericAPIError{
+		Code:    code,
+		Message: message,
+		Fault:   smithy.FaultUnknown,
+	}
+}
 
 func TestNewStopper(t *testing.T) {
 	s, a, l := newTestableStopper(t, 25)
@@ -68,7 +78,7 @@ var stopperManipulateCases = []struct {
 				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{
 					QueryId: sp("bar"),
 				}).
-				Return(nil, cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "baz", errors.New("qux"))).
+				Return(nil, &types.LimitExceededException{Message: sp("baz")}).
 				Once()
 		},
 		expected: temporaryError,
@@ -80,7 +90,7 @@ var stopperManipulateCases = []struct {
 				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{
 					QueryId: sp("bar"),
 				}).
-				Return(nil, cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "baz", errors.New("qux"))).
+				Return(nil, &types.InvalidParameterException{Message: sp("baz")}).
 				Once()
 			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
 				t.Name(), "failed to stop", "foo(bar)", "", mock.Anything, mock.Anything, mock.Anything)
@@ -110,7 +120,7 @@ var stopperManipulateCases = []struct {
 					QueryId: sp("bar"),
 				}).
 				Return(&cloudwatchlogs.StopQueryOutput{
-					Success: &success,
+					Success: success,
 				}, nil).
 				Once()
 			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
@@ -127,7 +137,7 @@ var stopperManipulateCases = []struct {
 					QueryId: sp("bar"),
 				}).
 				Return(&cloudwatchlogs.StopQueryOutput{
-					Success: &success,
+					Success: success,
 				}, nil).
 				Once()
 			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)",

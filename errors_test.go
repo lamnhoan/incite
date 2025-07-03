@@ -8,16 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"net/http"
-	"strings"
 	"syscall"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/private/protocol/restjson"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -111,16 +106,16 @@ func TestClassifyError(t *testing.T) {
 		permanentCases := []error{
 			nil,
 			errors.New("bif"),
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 400, "very, very, bad request"),
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 500, "internal server error"),
-			cwlErr(cloudwatchlogs.ErrCodeInvalidOperationException, "foo"),
-			cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "bar"),
-			cwlErr(cloudwatchlogs.ErrCodeMalformedQueryException, "baz"),
-			cwlErr(cloudwatchlogs.ErrCodeResourceNotFoundException, "ham"),
-			cwlErr(cloudwatchlogs.ErrCodeUnrecognizedClientException, "eggs"),
+			&smithy.GenericAPIError{Code: "BadRequest", Message: "very, very, bad request"},
+			&smithy.GenericAPIError{Code: "InternalServerError", Message: "internal server error"},
+			&types.InvalidOperationException{Message: sp("foo")},
+			&types.InvalidParameterException{Message: sp("bar")},
+			&types.MalformedQueryException{Message: sp("baz")},
+			&types.ResourceNotFoundException{Message: sp("ham")},
+			&types.UnrecognizedClientException{Message: sp("eggs")},
 			syscall.ENETDOWN,
 			wrapErr{syscall.ENETDOWN},
-			cwlErr("Ain't no network", "It's down", syscall.ENETDOWN),
+			wrapErr{&types.InvalidOperationException{Message: sp("Ain't no network")}},
 		}
 		for i, permanentCase := range permanentCases {
 			t.Run(fmt.Sprintf("permanentCase[%d]=%s", i, permanentCase), func(t *testing.T) {
@@ -131,8 +126,8 @@ func TestClassifyError(t *testing.T) {
 
 	t.Run("Throttling Cases", func(t *testing.T) {
 		throttlingCases := []error{
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 429, "too-many-requests"),
-			cwlErr("tttthroTTLED!", "simmer down"),
+			&smithy.GenericAPIError{Code: "TooManyRequestsException", Message: "too-many-requests"},
+			&smithy.GenericAPIError{Code: "ThrottledException", Message: "simmer down"},
 		}
 		for i, throttlingCase := range throttlingCases {
 			t.Run(fmt.Sprintf("throttlingCase[%d]=%s", i, throttlingCase), func(t *testing.T) {
@@ -143,7 +138,7 @@ func TestClassifyError(t *testing.T) {
 
 	t.Run("Limit Exceeded Cases", func(t *testing.T) {
 		limitExceededCases := []error{
-			cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "stay under that limit"),
+			&types.LimitExceededException{Message: sp("stay under that limit")},
 		}
 		for i, limitExceededCase := range limitExceededCases {
 			t.Run(fmt.Sprintf("limitExceededCase[%d]=%s", i, limitExceededCase), func(t *testing.T) {
@@ -154,23 +149,22 @@ func TestClassifyError(t *testing.T) {
 
 	t.Run("Temporary Cases", func(t *testing.T) {
 		temporaryCases := []error{
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 502, "bad-gateway"),
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 503, "service-unavailable"),
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 504, "gateway-timeout"),
-			awserr.New("there was no availability of service", "unavailable", awserr.NewRequestFailure(awserr.New("a", "b", nil), 503, "my request")),
-			cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "stand by for more great service"),
+			&smithy.GenericAPIError{Code: "BadGateway", Message: "bad-gateway"},
+			&smithy.GenericAPIError{Code: "ServiceUnavailable", Message: "service-unavailable"},
+			&smithy.GenericAPIError{Code: "GatewayTimeout", Message: "gateway-timeout"},
+			&types.ServiceUnavailableException{Message: sp("stand by for more great service")},
 			io.EOF,
 			wrapErr{io.EOF},
-			cwlErr("i am at the end of my file", "the end I say", io.EOF),
+			wrapErr{&types.ServiceUnavailableException{Message: sp("i am at the end of my file")}},
 			syscall.ETIMEDOUT,
 			wrapErr{syscall.ETIMEDOUT},
-			cwlErr("my time has run expected", "the end I say", syscall.ETIMEDOUT),
+			wrapErr{&types.ServiceUnavailableException{Message: sp("my time has run expected")}},
 			syscall.ECONNREFUSED,
 			wrapErr{syscall.ECONNREFUSED},
-			cwlErr("let there be no connection", "for it has been refused", syscall.ECONNREFUSED),
+			wrapErr{&types.ServiceUnavailableException{Message: sp("let there be no connection")}},
 			syscall.ECONNRESET,
 			wrapErr{syscall.ECONNRESET},
-			cwlErr("Reset that conn!", "Reset, reset!", syscall.ECONNRESET),
+			wrapErr{&types.ServiceUnavailableException{Message: sp("Reset that conn!")}},
 		}
 		for i, temporaryCase := range temporaryCases {
 			t.Run(fmt.Sprintf("temporaryCase[%d]=%s", i, temporaryCase), func(t *testing.T) {
@@ -182,36 +176,21 @@ func TestClassifyError(t *testing.T) {
 	t.Run("Special Cases", func(t *testing.T) {
 		t.Run("Issue #13 - Retry API calls when the CWL API response payload can't be deserialized", func(t *testing.T) {
 			// Regression test for: https://github.com/gogama/incite/issues/13
-			assert.Equal(t, temporaryClass, classifyError(issue13Error(t.Name(), 503)))
+			assert.Equal(t, temporaryClass, classifyError(issue13Error()))
 		})
 	})
 }
 
 // issue13Error returns an error of the type that triggered issue #13,
 // https://github.com/gogama/incite/issues/13.
-func issue13Error(requestID string, statusCode int) error {
-	r := request.Request{
-		RequestID: requestID,
-		HTTPResponse: &http.Response{
-			StatusCode: statusCode,
-			Body:       ioutil.NopCloser(strings.NewReader("")),
+func issue13Error() error {
+	return &smithy.OperationError{
+		ServiceID:     "CloudWatchLogs",
+		OperationName: "GetQueryResults",
+		Err: &smithy.DeserializationError{
+			Err: errors.New("failed to deserialize response"),
 		},
 	}
-
-	// Construct the problem error.
-	restjson.UnmarshalError(&r)
-
-	return r.Error
-}
-
-func cwlErr(code, message string, cause ...error) error {
-	var origErr error
-	if len(cause) == 1 {
-		origErr = cause[0]
-	} else if len(cause) > 1 {
-		panic("only one cause allowed")
-	}
-	return awserr.New(code, message, origErr)
 }
 
 type wrapErr struct {
