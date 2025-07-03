@@ -39,7 +39,7 @@ func TestStopper_context(t *testing.T) {
 
 	ctx := s.context(&chunk{})
 
-	assert.Same(t, context.Background(), ctx)
+	assert.Equal(t, context.Background(), ctx)
 	l.AssertExpectations(t)
 	a.AssertExpectations(t)
 }
