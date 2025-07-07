@@ -8,8 +8,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 )
 
 type poller struct {
@@ -53,7 +53,7 @@ func (p *poller) manipulate(c *chunk) outcome {
 	input := cloudwatchlogs.GetQueryResultsInput{
 		QueryId: &c.queryID,
 	}
-	output, err := p.m.Actions.GetQueryResultsWithContext(c.ctx, &input, request.WithAppendUserAgent(version()))
+	output, err := p.m.Actions.GetQueryResults(c.ctx, &input)
 	p.lastReq = time.Now()
 
 	if err != nil {
@@ -69,17 +69,17 @@ func (p *poller) manipulate(c *chunk) outcome {
 		}
 	}
 
-	if output.Status == nil {
+	if len(output.Status) == 0 {
 		c.err = &UnexpectedQueryError{c.queryID, c.stream.Text, errNilStatus()}
 		return finished
 	}
 
-	status := *output.Status
+	status := output.Status
 	switch status {
-	case cloudwatchlogs.QueryStatusScheduled, "Unknown":
+	case types.QueryStatusScheduled, "Unknown":
 		c.err = nil
 		return inconclusive
-	case cloudwatchlogs.QueryStatusRunning:
+	case types.QueryStatusRunning:
 		c.err = nil
 		if c.ptr == nil {
 			return inconclusive // Ignore non-previewable results.
@@ -89,7 +89,7 @@ func (p *poller) manipulate(c *chunk) outcome {
 			return finished
 		}
 		return inconclusive
-	case cloudwatchlogs.QueryStatusComplete:
+	case types.QueryStatusComplete:
 		translateStats(output.Statistics, &c.Stats)
 		if p.splittable(c, len(output.Results)) {
 			c.err = errSplitChunk
@@ -101,7 +101,7 @@ func (p *poller) manipulate(c *chunk) outcome {
 			c.state = complete
 		}
 		return finished
-	case cloudwatchlogs.QueryStatusFailed:
+	case types.QueryStatusFailed:
 		if c.ptr == nil && c.restart < maxRestart {
 			translateStats(output.Statistics, &c.Stats)
 			c.restart++
@@ -111,7 +111,7 @@ func (p *poller) manipulate(c *chunk) outcome {
 		fallthrough
 	default:
 		translateStats(output.Statistics, &c.Stats)
-		c.err = &TerminalQueryStatusError{c.queryID, status, c.stream.Text}
+		c.err = &TerminalQueryStatusError{c.queryID, string(status), c.stream.Text}
 		return finished
 	}
 }
@@ -120,7 +120,7 @@ func (p *poller) release(c *chunk) {
 	p.m.logChunk(c, "releasing pollable", "")
 }
 
-func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField) bool {
+func sendChunkBlock(c *chunk, results [][]types.ResultField) bool {
 	var block []Result
 	var err error
 
@@ -147,22 +147,16 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField) bool {
 	return true
 }
 
-func translateStats(in *cloudwatchlogs.QueryStatistics, out *Stats) {
+func translateStats(in *types.QueryStatistics, out *Stats) {
 	if in == nil {
 		return
 	}
-	if in.BytesScanned != nil {
-		out.BytesScanned += *in.BytesScanned
-	}
-	if in.RecordsMatched != nil {
-		out.RecordsMatched += *in.RecordsMatched
-	}
-	if in.RecordsScanned != nil {
-		out.RecordsScanned += *in.RecordsScanned
-	}
+	out.BytesScanned += in.BytesScanned
+	out.RecordsMatched += in.RecordsMatched
+	out.RecordsScanned += in.RecordsScanned
 }
 
-func translateResultsNoPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
+func translateResultsNoPreview(c *chunk, results [][]types.ResultField) ([]Result, error) {
 	var err error
 	block := make([]Result, len(results))
 	for i, r := range results {
@@ -174,7 +168,7 @@ func translateResultsNoPreview(c *chunk, results [][]*cloudwatchlogs.ResultField
 	return block, nil
 }
 
-func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
+func translateResultsPreview(c *chunk, results [][]types.ResultField) ([]Result, error) {
 	// Create a slice to contain the block of results.
 	block := make([]Result, 0, len(results))
 	// Create a map to track which @ptr are new with this batch of results.
@@ -184,9 +178,6 @@ func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) 
 		var ptr *string
 		for i := range r {
 			f := r[i]
-			if f == nil {
-				continue
-			}
 			k, v := f.Field, f.Value
 			if k != nil && *k == "@ptr" {
 				ptr = v
@@ -227,12 +218,9 @@ func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) 
 	return block, nil
 }
 
-func translateResult(c *chunk, r []*cloudwatchlogs.ResultField) (Result, error) {
+func translateResult(c *chunk, r []types.ResultField) (Result, error) {
 	rr := make(Result, len(r))
 	for i, f := range r {
-		if f == nil {
-			return Result{}, &UnexpectedQueryError{QueryID: c.queryID, Text: c.stream.Text, Cause: errNilResultField(i)}
-		}
 		k, v := f.Field, f.Value
 		if k == nil {
 			return Result{}, &UnexpectedQueryError{QueryID: c.queryID, Text: c.stream.Text, Cause: errNoKey()}

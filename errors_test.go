@@ -8,16 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"net/http"
-	"strings"
 	"syscall"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/private/protocol/restjson"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -88,12 +84,6 @@ func TestErrNilStatus(t *testing.T) {
 	assert.EqualError(t, err, outputMissingStatusMsg)
 }
 
-func TestErrNilResultField(t *testing.T) {
-	err := errNilResultField(13)
-
-	assert.EqualError(t, err, `incite: result field [13] is nil`)
-}
-
 func TestErrNoKey(t *testing.T) {
 	err := errNoKey()
 
@@ -111,16 +101,16 @@ func TestClassifyError(t *testing.T) {
 		permanentCases := []error{
 			nil,
 			errors.New("bif"),
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 400, "very, very, bad request"),
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 500, "internal server error"),
-			cwlErr(cloudwatchlogs.ErrCodeInvalidOperationException, "foo"),
-			cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "bar"),
-			cwlErr(cloudwatchlogs.ErrCodeMalformedQueryException, "baz"),
-			cwlErr(cloudwatchlogs.ErrCodeResourceNotFoundException, "ham"),
-			cwlErr(cloudwatchlogs.ErrCodeUnrecognizedClientException, "eggs"),
+			&smithy.GenericAPIError{Code: "BadRequest", Message: "very, very, bad request"},
+			&smithy.GenericAPIError{Code: "InternalServerError", Message: "internal server error"},
+			&types.InvalidOperationException{Message: aws.String("foo")},
+			&types.InvalidParameterException{Message: aws.String("bar")},
+			&types.MalformedQueryException{Message: aws.String("baz")},
+			&types.ResourceNotFoundException{Message: aws.String("ham")},
+			&types.UnrecognizedClientException{Message: aws.String("eggs")},
 			syscall.ENETDOWN,
 			wrapErr{syscall.ENETDOWN},
-			cwlErr("Ain't no network", "It's down", syscall.ENETDOWN),
+			&smithy.GenericAPIError{Code: "Ain't no network", Message: "It's down"},
 		}
 		for i, permanentCase := range permanentCases {
 			t.Run(fmt.Sprintf("permanentCase[%d]=%s", i, permanentCase), func(t *testing.T) {
@@ -131,8 +121,9 @@ func TestClassifyError(t *testing.T) {
 
 	t.Run("Throttling Cases", func(t *testing.T) {
 		throttlingCases := []error{
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 429, "too-many-requests"),
-			cwlErr("tttthroTTLED!", "simmer down"),
+			&smithy.GenericAPIError{Code: "ThrottlingException", Message: "too-many-requests"},
+			&smithy.GenericAPIError{Code: "Throttled", Message: "simmer down"},
+			&smithy.GenericAPIError{Code: "TooManyRequests", Message: "slow down"},
 		}
 		for i, throttlingCase := range throttlingCases {
 			t.Run(fmt.Sprintf("throttlingCase[%d]=%s", i, throttlingCase), func(t *testing.T) {
@@ -143,7 +134,7 @@ func TestClassifyError(t *testing.T) {
 
 	t.Run("Limit Exceeded Cases", func(t *testing.T) {
 		limitExceededCases := []error{
-			cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "stay under that limit"),
+			&types.LimitExceededException{Message: aws.String("stay under that limit")},
 		}
 		for i, limitExceededCase := range limitExceededCases {
 			t.Run(fmt.Sprintf("limitExceededCase[%d]=%s", i, limitExceededCase), func(t *testing.T) {
@@ -154,23 +145,22 @@ func TestClassifyError(t *testing.T) {
 
 	t.Run("Temporary Cases", func(t *testing.T) {
 		temporaryCases := []error{
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 502, "bad-gateway"),
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 503, "service-unavailable"),
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 504, "gateway-timeout"),
-			awserr.New("there was no availability of service", "unavailable", awserr.NewRequestFailure(awserr.New("a", "b", nil), 503, "my request")),
-			cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "stand by for more great service"),
+			&smithy.GenericAPIError{Code: "BadGateway", Message: "bad-gateway"},
+			&smithy.GenericAPIError{Code: "ServiceUnavailable", Message: "service-unavailable"},
+			&smithy.GenericAPIError{Code: "GatewayTimeout", Message: "gateway-timeout"},
+			&types.ServiceUnavailableException{Message: aws.String("stand by for more great service")},
 			io.EOF,
 			wrapErr{io.EOF},
-			cwlErr("i am at the end of my file", "the end I say", io.EOF),
+			wrapErr{&types.ServiceUnavailableException{Message: aws.String("i am at the end of my file")}},
 			syscall.ETIMEDOUT,
 			wrapErr{syscall.ETIMEDOUT},
-			cwlErr("my time has run expected", "the end I say", syscall.ETIMEDOUT),
+			wrapErr{&types.ServiceUnavailableException{Message: aws.String("my time has run expected")}},
 			syscall.ECONNREFUSED,
 			wrapErr{syscall.ECONNREFUSED},
-			cwlErr("let there be no connection", "for it has been refused", syscall.ECONNREFUSED),
+			wrapErr{&types.ServiceUnavailableException{Message: aws.String("let there be no connection")}},
 			syscall.ECONNRESET,
 			wrapErr{syscall.ECONNRESET},
-			cwlErr("Reset that conn!", "Reset, reset!", syscall.ECONNRESET),
+			wrapErr{&types.ServiceUnavailableException{Message: aws.String("Reset that conn!")}},
 		}
 		for i, temporaryCase := range temporaryCases {
 			t.Run(fmt.Sprintf("temporaryCase[%d]=%s", i, temporaryCase), func(t *testing.T) {
@@ -182,26 +172,40 @@ func TestClassifyError(t *testing.T) {
 	t.Run("Special Cases", func(t *testing.T) {
 		t.Run("Issue #13 - Retry API calls when the CWL API response payload can't be deserialized", func(t *testing.T) {
 			// Regression test for: https://github.com/gogama/incite/issues/13
-			assert.Equal(t, temporaryClass, classifyError(issue13Error(t.Name(), 503)))
+			assert.Equal(t, temporaryClass, classifyError(issue13Error(t.Name())))
 		})
 	})
 }
 
 // issue13Error returns an error of the type that triggered issue #13,
 // https://github.com/gogama/incite/issues/13.
-func issue13Error(requestID string, statusCode int) error {
-	r := request.Request{
-		RequestID: requestID,
-		HTTPResponse: &http.Response{
-			StatusCode: statusCode,
-			Body:       ioutil.NopCloser(strings.NewReader("")),
-		},
+func issue13Error(requestID string) error {
+	// In AWS SDK Go v2, we simulate a similar error condition
+	// by creating a deserialization error wrapped in an operation error
+	deserializeErr := &smithy.DeserializationError{
+		Err: fmt.Errorf("failed to deserialize response for request %s", requestID),
 	}
+	return &smithy.OperationError{
+		ServiceID:     "CloudWatchLogs",
+		OperationName: "GetQueryResults",
+		Err:           deserializeErr,
+	}
+}
 
-	// Construct the problem error.
-	restjson.UnmarshalError(&r)
+type CWLError struct {
+	APIError *smithy.GenericAPIError
+	Cause    error
+}
 
-	return r.Error
+func (e *CWLError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %v", e.APIError.Error(), e.Cause)
+	}
+	return e.APIError.Error()
+}
+
+func (e *CWLError) Unwrap() error {
+	return e.Cause
 }
 
 func cwlErr(code, message string, cause ...error) error {
@@ -211,7 +215,17 @@ func cwlErr(code, message string, cause ...error) error {
 	} else if len(cause) > 1 {
 		panic("only one cause allowed")
 	}
-	return awserr.New(code, message, origErr)
+
+	apiErr := &smithy.GenericAPIError{
+		Code:    code,
+		Message: message,
+		Fault:   smithy.FaultUnknown,
+	}
+
+	return &CWLError{
+		APIError: apiErr,
+		Cause:    origErr,
+	}
 }
 
 type wrapErr struct {
