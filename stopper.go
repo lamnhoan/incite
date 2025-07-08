@@ -8,6 +8,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 )
 
@@ -37,6 +38,8 @@ func (s *stopper) context(_ *chunk) context.Context {
 func (s *stopper) manipulate(c *chunk) outcome {
 	output, err := s.m.Actions.StopQuery(context.Background(), &cloudwatchlogs.StopQueryInput{
 		QueryId: &c.queryID,
+	}, func(o *cloudwatchlogs.Options) {
+		o.APIOptions = append(o.APIOptions, middleware.AddUserAgentKey(version()))
 	})
 	s.lastReq = time.Now()
 	if err != nil {

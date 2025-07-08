@@ -106,10 +106,6 @@ func errNilStatus() error {
 	return errors.New(outputMissingStatusMsg)
 }
 
-func errEmptyResultField(i int) error {
-	return fmt.Errorf("incite: result field [%d] is empty", i)
-}
-
 func errNoKey() error {
 	return errors.New(fieldMissingKeyMsg)
 }

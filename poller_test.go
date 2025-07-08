@@ -140,7 +140,7 @@ func TestPoller_manipulate(t *testing.T) {
 			{
 				name: "Status Unknown",
 				output: &cloudwatchlogs.GetQueryResultsOutput{
-					Status: "Unknown",
+					Status: types.QueryStatusUnknown,
 				},
 				expectedOutcome: inconclusive,
 			},

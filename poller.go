@@ -8,6 +8,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 )
@@ -53,7 +54,9 @@ func (p *poller) manipulate(c *chunk) outcome {
 	input := cloudwatchlogs.GetQueryResultsInput{
 		QueryId: &c.queryID,
 	}
-	output, err := p.m.Actions.GetQueryResults(c.ctx, &input)
+	output, err := p.m.Actions.GetQueryResults(c.ctx, &input, func(o *cloudwatchlogs.Options) {
+		o.APIOptions = append(o.APIOptions, middleware.AddUserAgentKey(version()))
+	})
 	p.lastReq = time.Now()
 
 	if err != nil {
