@@ -8,12 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/aws/smithy-go"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -172,24 +175,32 @@ func TestClassifyError(t *testing.T) {
 	t.Run("Special Cases", func(t *testing.T) {
 		t.Run("Issue #13 - Retry API calls when the CWL API response payload can't be deserialized", func(t *testing.T) {
 			// Regression test for: https://github.com/gogama/incite/issues/13
-			assert.Equal(t, temporaryClass, classifyError(issue13Error(t.Name())))
+			assert.Equal(t, temporaryClass, classifyError(issue13Error(t.Name(), 503)))
 		})
 	})
 }
 
 // issue13Error returns an error of the type that triggered issue #13,
 // https://github.com/gogama/incite/issues/13.
-func issue13Error(requestID string) error {
-	// In AWS SDK Go v2, we simulate a similar error condition
-	// by creating a deserialization error wrapped in an operation error
+func issue13Error(requestID string, statusCode int) error {
+
+	httpResponse := &smithyhttp.Response{
+		Response: &http.Response{
+			StatusCode: statusCode,
+			Body:       io.NopCloser(strings.NewReader("")),
+		},
+	}
+
 	deserializeErr := &smithy.DeserializationError{
 		Err: fmt.Errorf("failed to deserialize response for request %s", requestID),
 	}
-	return &smithy.OperationError{
-		ServiceID:     "CloudWatchLogs",
-		OperationName: "GetQueryResults",
-		Err:           deserializeErr,
+
+	httpResponseError := &smithyhttp.ResponseError{
+		Response: httpResponse,
+		Err:      deserializeErr,
 	}
+
+	return httpResponseError
 }
 
 type wrapErr struct {
