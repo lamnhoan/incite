@@ -17,14 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-)
-
-var (
-	anyContextpoller = mock.MatchedBy(func(ctx context.Context) bool {
-		return ctx != nil
-	})
 )
 
 func TestNewPoller(t *testing.T) {
@@ -358,10 +351,10 @@ func TestPoller_manipulate(t *testing.T) {
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
 				p, actions, logger := newTestablePoller(t, 10_000_000)
-				groups := []*string{aws.String("a"), aws.String("b")}
+				groups := []string{"a", "b"}
 				var limit int64 = 1_000
 				actions.
-					On("GetQueryResults", anyContextpoller, &cloudwatchlogs.GetQueryResultsInput{
+					On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{
 						QueryId: &queryID,
 					}).
 					Return(testCase.output, testCase.err).

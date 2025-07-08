@@ -9,8 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 )
 
 type starter struct {
@@ -48,15 +47,18 @@ func (s *starter) manipulate(c *chunk) outcome {
 	starts := epochMillisecond(c.start)
 	ends := epochMillisecond(c.end.Add(-time.Millisecond)) // CWL uses inclusive time ranges, we use exclusive ranges.
 
+	// Convert Limit from int64 to int32 for AWS SDK Go v2
+	limit := int32(c.stream.Limit)
+
 	// Start the chunk.
 	input := cloudwatchlogs.StartQueryInput{
 		QueryString:   &c.stream.Text,
 		StartTime:     &starts,
 		EndTime:       &ends,
 		LogGroupNames: c.stream.groups,
-		Limit:         &c.stream.Limit,
+		Limit:         &limit,
 	}
-	output, err := s.m.Actions.StartQueryWithContext(c.ctx, &input, request.WithAppendUserAgent(version()))
+	output, err := s.m.Actions.StartQuery(c.ctx, &input)
 	s.lastReq = time.Now()
 	if err != nil {
 		c.err = &StartQueryError{c.stream.Text, c.start, c.end, err}

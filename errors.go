@@ -14,6 +14,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/aws/smithy-go"
+	"github.com/aws/smithy-go/transport/http"
 )
 
 var (
@@ -127,15 +128,21 @@ const (
 )
 
 func classifyError(err error) errorClass {
-	// Check for specific CloudWatch Logs error types
-	var limitExceeded *types.LimitExceededException
-	if errors.As(err, &limitExceeded) {
-		return limitExceededClass
-	}
 
-	var serviceUnavailable *types.ServiceUnavailableException
-	if errors.As(err, &serviceUnavailable) {
-		return temporaryClass
+	// Check for ResponseError
+	// Check HTTP status codes
+	var httpErr *http.ResponseError
+	if errors.As(err, &httpErr) {
+		switch httpErr.HTTPStatusCode() {
+		case 429:
+			return throttlingClass
+		case 502, 503, 504:
+			return temporaryClass
+		}
+
+		if httpErr.Unwrap() != nil {
+			return classifyError(httpErr.Unwrap())
+		}
 	}
 
 	// Check for generic API errors
@@ -156,6 +163,25 @@ func classifyError(err error) errorClass {
 			strings.Contains(strings.ToLower(code), "gatewaytimeout") {
 			return temporaryClass
 		}
+
+		if strings.Contains(strings.ToLower(code), "limitexceeded") {
+			return limitExceededClass
+		}
+
+		if strings.Contains(strings.ToLower(code), "invalidparameterexception") {
+			return permanentClass
+		}
+	}
+
+	// Check for specific CloudWatch Logs error types
+	var limitExceeded *types.LimitExceededException
+	if errors.As(err, &limitExceeded) {
+		return limitExceededClass
+	}
+
+	var serviceUnavailable *types.ServiceUnavailableException
+	if errors.As(err, &serviceUnavailable) {
+		return temporaryClass
 	}
 
 	// Check for OperationError

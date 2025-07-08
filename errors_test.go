@@ -192,42 +192,6 @@ func issue13Error(requestID string) error {
 	}
 }
 
-type CWLError struct {
-	APIError *smithy.GenericAPIError
-	Cause    error
-}
-
-func (e *CWLError) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("%s: %v", e.APIError.Error(), e.Cause)
-	}
-	return e.APIError.Error()
-}
-
-func (e *CWLError) Unwrap() error {
-	return e.Cause
-}
-
-func cwlErr(code, message string, cause ...error) error {
-	var origErr error
-	if len(cause) == 1 {
-		origErr = cause[0]
-	} else if len(cause) > 1 {
-		panic("only one cause allowed")
-	}
-
-	apiErr := &smithy.GenericAPIError{
-		Code:    code,
-		Message: message,
-		Fault:   smithy.FaultUnknown,
-	}
-
-	return &CWLError{
-		APIError: apiErr,
-		Cause:    origErr,
-	}
-}
-
 type wrapErr struct {
 	cause error
 }
