@@ -65,7 +65,7 @@ type QuerySpec struct {
 	// Note that as of 2021-07-15, the CloudWatch Logs StartQuery API
 	// seems to ignore the `limit` command in the query text, so if you
 	// want to apply a limit you must use the Limit field.
-	Limit int64
+	Limit int32
 
 	// Chunk optionally requests a chunked query and indicates the chunk
 	// size.

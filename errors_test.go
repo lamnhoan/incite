@@ -81,12 +81,6 @@ func TestUnexpectedQueryError_Unwrap(t *testing.T) {
 	assert.Same(t, cause, err.Unwrap())
 }
 
-func TestErrNilStatus(t *testing.T) {
-	err := errNilStatus()
-
-	assert.EqualError(t, err, outputMissingStatusMsg)
-}
-
 func TestErrNoKey(t *testing.T) {
 	err := errNoKey()
 
@@ -124,9 +118,9 @@ func TestClassifyError(t *testing.T) {
 
 	t.Run("Throttling Cases", func(t *testing.T) {
 		throttlingCases := []error{
-			&smithy.GenericAPIError{Code: "ThrottlingException", Message: "too-many-requests"},
-			&smithy.GenericAPIError{Code: "Throttled", Message: "simmer down"},
-			&smithy.GenericAPIError{Code: "TooManyRequests", Message: "slow down"},
+			&types.ThrottlingException{Message: aws.String("too-many-requests")},
+			&types.ThrottlingException{Message: aws.String("simmer down")},
+			&types.ThrottlingException{Message: aws.String("slow down")},
 		}
 		for i, throttlingCase := range throttlingCases {
 			t.Run(fmt.Sprintf("throttlingCase[%d]=%s", i, throttlingCase), func(t *testing.T) {
@@ -148,9 +142,6 @@ func TestClassifyError(t *testing.T) {
 
 	t.Run("Temporary Cases", func(t *testing.T) {
 		temporaryCases := []error{
-			&smithy.GenericAPIError{Code: "BadGateway", Message: "bad-gateway"},
-			&smithy.GenericAPIError{Code: "ServiceUnavailable", Message: "service-unavailable"},
-			&smithy.GenericAPIError{Code: "GatewayTimeout", Message: "gateway-timeout"},
 			&types.ServiceUnavailableException{Message: aws.String("stand by for more great service")},
 			io.EOF,
 			wrapErr{io.EOF},

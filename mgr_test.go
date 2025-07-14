@@ -17,7 +17,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
-	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -1268,23 +1267,37 @@ func TestQueryManager_Query(t *testing.T) {
 		// output object with certain invalid values, such as a nil
 		// pointer for the status field.
 
+		queryID := "bar"
+		text := "query text that secretly triggers bad service behavior"
+
 		testCases := []struct {
-			name      string
-			cause     error
-			gqrOutput *cloudwatchlogs.GetQueryResultsOutput
-			gqrErr    error
+			name        string
+			cause       error
+			gqrOutput   *cloudwatchlogs.GetQueryResultsOutput
+			gqrErr      error
+			expectedErr error
 		}{
 			{
 				name:      "Service Call Error",
 				cause:     errors.New("call to CWL failed"),
 				gqrOutput: nil,
 				gqrErr:    errors.New("call to CWL failed"),
+				expectedErr: &UnexpectedQueryError{
+					QueryID: queryID,
+					Text:    text,
+					Cause:   errors.New("call to CWL failed"),
+				},
 			},
 			{
-				name:  "Nil Status",
-				cause: errNilStatus(),
+				name:  "Empty Status",
+				cause: nil,
 				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
 					Statistics: &types.QueryStatistics{},
+				},
+				expectedErr: &TerminalQueryStatusError{
+					QueryID: queryID,
+					Status:  "",
+					Text:    text,
 				},
 			},
 			{
@@ -1296,6 +1309,11 @@ func TestQueryManager_Query(t *testing.T) {
 						{{Value: aws.String("orphan value")}},
 					},
 				},
+				expectedErr: &UnexpectedQueryError{
+					QueryID: queryID,
+					Text:    text,
+					Cause:   errNoKey(),
+				},
 			},
 			{
 				name:  "No Value",
@@ -1306,6 +1324,11 @@ func TestQueryManager_Query(t *testing.T) {
 						{{Field: aws.String("orphan key")}},
 					},
 				},
+				expectedErr: &UnexpectedQueryError{
+					QueryID: queryID,
+					Text:    text,
+					Cause:   errNoValue("orphan key"),
+				},
 			},
 		}
 
@@ -1314,8 +1337,6 @@ func TestQueryManager_Query(t *testing.T) {
 				for _, preview := range []string{"No Preview", "Preview"} {
 					t.Run(preview, func(t *testing.T) {
 						// ARRANGE.
-						queryID := "bar"
-						text := "query text that secretly triggers bad service behavior"
 						actions := newMockActions(t)
 						actions.
 							On("StartQuery", anyContext, anyStartQueryInput).
@@ -1357,11 +1378,7 @@ func TestQueryManager_Query(t *testing.T) {
 						// ASSERT.
 						assert.Equal(t, 0, n)
 						assert.Error(t, err)
-						assert.Equal(t, &UnexpectedQueryError{
-							QueryID: queryID,
-							Text:    text,
-							Cause:   testCase.cause,
-						}, err)
+						assert.Equal(t, testCase.expectedErr, err)
 						actions.AssertExpectations(t)
 					})
 				}
@@ -2159,7 +2176,7 @@ func TestQueryManager_Query(t *testing.T) {
 		text := "what do my logs say?"
 		groups := []string{"/log/group"}
 		queryID := "qid"
-		errThrottled := &smithy.GenericAPIError{Code: "throttled", Message: "throttled"}
+		errThrottled := &types.ThrottlingException{Message: aws.String("throttled")}
 
 		actions := newMockActions(t)
 		m := NewQueryManager(Config{

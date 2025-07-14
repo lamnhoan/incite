@@ -70,7 +70,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
-	"github.com/gogama/incite"
+	"github.com/gogama/incite/v2"
 )
 
 func main() {

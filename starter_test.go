@@ -135,14 +135,14 @@ func TestStarter_manipulate(t *testing.T) {
 			t.Run(testCase.name, func(t *testing.T) {
 				s, actions, logger := newTestableStarter(t, 1_000_000)
 				groups := []string{"g"}
-				var limit int64 = 999
+				var limit int32 = 999
 				actions.
 					On("StartQuery", anyContext, &cloudwatchlogs.StartQueryInput{
 						QueryString:   &text,
 						StartTime:     startTimeMilliseconds(start),
 						EndTime:       endTimeMilliseconds(end),
 						LogGroupNames: groups,
-						Limit:         aws.Int32(int32(limit)),
+						Limit:         aws.Int32(limit),
 					}).
 					Return(testCase.output, testCase.err).
 					Once()

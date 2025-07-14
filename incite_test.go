@@ -19,7 +19,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
-	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -450,7 +449,7 @@ var scenarios = []queryScenario{
 				startQueryInput: startQueryInput("many happy results", defaultStart, defaultEnd, DefaultLimit, "/thomas/gray", "/thomas/aquinas"),
 				startQueryErrs: []error{
 					&types.LimitExceededException{Message: aws.String("use less")},
-					&smithy.GenericAPIError{Code: "Throttling", Message: "slow down", Fault: smithy.FaultClient},
+					&types.ThrottlingException{Message: aws.String("slow down")},
 					&types.ServiceUnavailableException{Message: aws.String("wait for it...")},
 					io.EOF,
 				},
@@ -480,7 +479,7 @@ var scenarios = []queryScenario{
 						stats: &Stats{99, 98, 97, 0, 0, 0, 0, 0},
 					},
 					{
-						err: &smithy.GenericAPIError{Code: "throttling has occurred", Message: "and you were the recipient of the throttling", Fault: smithy.FaultClient},
+						err: &types.ThrottlingException{Message: aws.String("and you were the recipient of the throttling")},
 					},
 					{
 						status: string(types.QueryStatusComplete),

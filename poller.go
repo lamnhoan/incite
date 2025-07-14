@@ -72,14 +72,9 @@ func (p *poller) manipulate(c *chunk) outcome {
 		}
 	}
 
-	if len(output.Status) == 0 {
-		c.err = &UnexpectedQueryError{c.queryID, c.stream.Text, errNilStatus()}
-		return finished
-	}
-
 	status := output.Status
 	switch status {
-	case types.QueryStatusScheduled, "Unknown":
+	case types.QueryStatusScheduled, types.QueryStatusUnknown:
 		c.err = nil
 		return inconclusive
 	case types.QueryStatusRunning:
@@ -254,11 +249,11 @@ func deleteResult(ptr string) Result {
 
 // maxLimit is an indirect holder for the constant value MaxLimit used
 // to facilitate unit testing.
-var maxLimit int64 = MaxLimit
+var maxLimit int32 = MaxLimit
 
 func (p *poller) splittable(c *chunk, n int) bool {
 	// Short circuit if the chunk isn't maxed out.
-	if int64(n) < c.stream.Limit {
+	if int32(n) < c.stream.Limit {
 		return false
 	}
 
@@ -269,7 +264,7 @@ func (p *poller) splittable(c *chunk, n int) bool {
 	if c.ptr != nil {
 		return false // Can't split chunks if previewing is on.
 	}
-	if int64(n) < maxLimit {
+	if int32(n) < maxLimit {
 		return false // Don't split unless chunk query overflowed CWL max results.
 	}
 	if c.duration() <= c.stream.SplitUntil {

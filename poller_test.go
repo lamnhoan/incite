@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
-	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -88,12 +87,12 @@ func TestPoller_manipulate(t *testing.T) {
 		}{
 			{
 				name:            "Throttling Error",
-				err:             &smithy.GenericAPIError{Code: "throttled", Message: "foo"},
+				err:             &types.ThrottlingException{Message: aws.String("foo")},
 				expectedOutcome: throttlingError,
 				expectedChunkErr: &UnexpectedQueryError{
 					QueryID: queryID,
 					Text:    text,
-					Cause:   &smithy.GenericAPIError{Code: "throttled", Message: "foo"},
+					Cause:   &types.ThrottlingException{Message: aws.String("foo")},
 				},
 			},
 			{
@@ -124,10 +123,10 @@ func TestPoller_manipulate(t *testing.T) {
 				name:            "Nil Status",
 				output:          &cloudwatchlogs.GetQueryResultsOutput{},
 				expectedOutcome: finished,
-				expectedChunkErr: &UnexpectedQueryError{
+				expectedChunkErr: &TerminalQueryStatusError{
 					QueryID: queryID,
+					Status:  "",
 					Text:    text,
-					Cause:   errNilStatus(),
 				},
 			},
 			{
@@ -352,7 +351,7 @@ func TestPoller_manipulate(t *testing.T) {
 			t.Run(testCase.name, func(t *testing.T) {
 				p, actions, logger := newTestablePoller(t, 10_000_000)
 				groups := []string{"a", "b"}
-				var limit int64 = 1_000
+				var limit int32 = 1_000
 				actions.
 					On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{
 						QueryId: &queryID,

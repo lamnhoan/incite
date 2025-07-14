@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"syscall"
 	"time"
 
@@ -102,10 +101,6 @@ func (err *UnexpectedQueryError) Unwrap() error {
 	return err.Cause
 }
 
-func errNilStatus() error {
-	return errors.New(outputMissingStatusMsg)
-}
-
 func errNoKey() error {
 	return errors.New(fieldMissingKeyMsg)
 }
@@ -125,10 +120,16 @@ const (
 
 func classifyError(err error) errorClass {
 
+	// Check for OperationError
+	if opErr, ok := err.(*smithy.OperationError); ok {
+		if unwrappedErr := opErr.Unwrap(); unwrappedErr != nil {
+			return classifyError(unwrappedErr)
+		}
+	}
+
 	// Check for ResponseError
 	// Check HTTP status codes
-	var httpErr *http.ResponseError
-	if errors.As(err, &httpErr) {
+	if httpErr, ok := err.(*http.ResponseError); ok {
 		switch httpErr.HTTPStatusCode() {
 		case 429:
 			return throttlingClass
@@ -136,59 +137,27 @@ func classifyError(err error) errorClass {
 			return temporaryClass
 		}
 
-		if httpErr.Unwrap() != nil {
-			return classifyError(httpErr.Unwrap())
+		if unwrappedErr := httpErr.Unwrap(); unwrappedErr != nil {
+			return classifyError(unwrappedErr)
 		}
 	}
 
 	// Check for generic API errors
-	var apiErr smithy.APIError
-	if errors.As(err, &apiErr) {
-		code := apiErr.ErrorCode()
-
-		// Check for throttling using common AWS service patterns for indicating
-		// throttling via exception. Omit 'e' suffix on 'throttl' to match
-		// Throttled and Throttling.
-		if strings.Contains(strings.ToLower(code), "throttl") ||
-			strings.Contains(strings.ToLower(code), "toomanyrequests") {
+	if apiErr, ok := err.(smithy.APIError); ok {
+		switch apiErr.(type) {
+		case *types.ThrottlingException:
 			return throttlingClass
-		}
-
-		if strings.Contains(strings.ToLower(code), "badgateway") ||
-			strings.Contains(strings.ToLower(code), "serviceunavailable") ||
-			strings.Contains(strings.ToLower(code), "gatewaytimeout") {
+		case *types.ServiceUnavailableException:
 			return temporaryClass
-		}
-
-		if strings.Contains(strings.ToLower(code), "limitexceeded") {
+		case *types.LimitExceededException,
+			*types.ServiceQuotaExceededException:
 			return limitExceededClass
-		}
-
-		if strings.Contains(strings.ToLower(code), "invalidparameterexception") {
+		case *types.InvalidOperationException,
+			*types.InvalidParameterException,
+			*types.MalformedQueryException,
+			*types.ResourceNotFoundException,
+			*types.UnrecognizedClientException:
 			return permanentClass
-		}
-	}
-
-	// Check for specific CloudWatch Logs error types
-	var limitExceeded *types.LimitExceededException
-	if errors.As(err, &limitExceeded) {
-		return limitExceededClass
-	}
-
-	var serviceUnavailable *types.ServiceUnavailableException
-	if errors.As(err, &serviceUnavailable) {
-		return temporaryClass
-	}
-
-	// Check for OperationError
-	var opErr *smithy.OperationError
-	if errors.As(err, &opErr) {
-		unwrappedErr := opErr.Unwrap()
-		if unwrappedErr != nil {
-			var deserializeErr *smithy.DeserializationError
-			if errors.As(unwrappedErr, &deserializeErr) {
-				return temporaryClass
-			}
 		}
 	}
 
@@ -210,6 +179,10 @@ func classifyError(err error) errorClass {
 		default:
 			return permanentClass
 		}
+	}
+
+	if unwrappedErr := errors.Unwrap(err); unwrappedErr != nil {
+		return classifyError(unwrappedErr)
 	}
 
 	return permanentClass

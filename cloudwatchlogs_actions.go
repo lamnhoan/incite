@@ -16,7 +16,7 @@ import (
 //
 // This interface is compatible with the AWS SDK for Go (v2)'s
 // *cloudwatchlogs.Client type, so you may use this AWS SDK type to provide the
-// CloudWatch Logs act capabilities.
+// CloudWatch Logs action capabilities.
 //
 // For example:
 //
