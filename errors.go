@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"syscall"
 	"time"
 
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/aws/smithy-go"
-	"github.com/aws/smithy-go/transport/http"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 var (
@@ -119,17 +121,17 @@ const (
 )
 
 func classifyError(err error) errorClass {
-
-	// Check for OperationError
 	if opErr, ok := err.(*smithy.OperationError); ok {
 		if unwrappedErr := opErr.Unwrap(); unwrappedErr != nil {
 			return classifyError(unwrappedErr)
 		}
 	}
 
-	// Check for ResponseError
-	// Check HTTP status codes
-	if httpErr, ok := err.(*http.ResponseError); ok {
+	if httpErr, ok := err.(*awshttp.ResponseError); ok {
+		return classifyError(httpErr.ResponseError)
+	}
+
+	if httpErr, ok := err.(*smithyhttp.ResponseError); ok {
 		switch httpErr.HTTPStatusCode() {
 		case 429:
 			return throttlingClass
@@ -142,8 +144,15 @@ func classifyError(err error) errorClass {
 		}
 	}
 
-	// Check for generic API errors
 	if apiErr, ok := err.(smithy.APIError); ok {
+		// Check for throttling using common AWS service patterns for indicating
+		// throttling via exception. Omit 'e' suffix on 'throttl' to match
+		// Throttled and Throttling.
+		if strings.Contains(strings.ToLower(apiErr.ErrorCode()), "throttl") ||
+			strings.Contains(strings.ToLower(apiErr.ErrorMessage()), "rate exceeded") {
+			return throttlingClass
+		}
+
 		switch apiErr.(type) {
 		case *types.ThrottlingException:
 			return throttlingClass
@@ -152,11 +161,7 @@ func classifyError(err error) errorClass {
 		case *types.LimitExceededException,
 			*types.ServiceQuotaExceededException:
 			return limitExceededClass
-		case *types.InvalidOperationException,
-			*types.InvalidParameterException,
-			*types.MalformedQueryException,
-			*types.ResourceNotFoundException,
-			*types.UnrecognizedClientException:
+		default:
 			return permanentClass
 		}
 	}

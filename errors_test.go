@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/aws/smithy-go"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
@@ -174,7 +175,6 @@ func TestClassifyError(t *testing.T) {
 // issue13Error returns an error of the type that triggered issue #13,
 // https://github.com/gogama/incite/issues/13.
 func issue13Error(requestID string, statusCode int) error {
-
 	httpResponse := &smithyhttp.Response{
 		Response: &http.Response{
 			StatusCode: statusCode,
@@ -186,9 +186,12 @@ func issue13Error(requestID string, statusCode int) error {
 		Err: fmt.Errorf("failed to deserialize response for request %s", requestID),
 	}
 
-	httpResponseError := &smithyhttp.ResponseError{
-		Response: httpResponse,
-		Err:      deserializeErr,
+	httpResponseError := &awshttp.ResponseError{
+		ResponseError: &smithyhttp.ResponseError{
+			Response: httpResponse,
+			Err:      deserializeErr,
+		},
+		RequestID: requestID,
 	}
 
 	return httpResponseError
